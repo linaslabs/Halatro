@@ -1,0 +1,213 @@
+hand = [Card (Rank) (Suit) , Card (Rank) (Suit), ...]
+
+data HandType
+  = None
+  | HighCard
+  | Pair
+  | TwoPair
+  | ThreeOfAKind
+  | Straight
+  | Flush
+  | FullHouse
+  | FourOfAKind
+  | StraightFlush
+  | RoyalFlush
+
+
+data Rank = Two | Three | Four | Five | Six | Seven | Eight | Nine | Ten | Jack | Queen | King | Ace
+data Suit = Clubs | Diamonds | Hearts | Spades
+
+
+
+
+-- To verify presence of 3 or 4 of a kind
+repetitions :: [Rank] -> Int -> Bool
+repetitions [] a = False
+repetitions (x:xs) repeatsToFind
+    | length (filter (==x) xs) == repeatsToFind = True
+    | length xs == repeatsToFind      = False -- To eliminate the need to search rest of the list after a certain point
+    | otherwise = repetitions xs repeatsToFind
+
+
+-------------isStraight previous:
+
+-- To verify presence of straight (might need more testing when crossing between Ace...)
+isStraight :: [Rank] -> Bool
+isStraight [] = False
+isStraight (x:xs)
+    | sort (x:xs) == [x..(nextRank $ nextRank $ nextRank $ nextRank x)]    = True
+    | (x:xs) == [x, (previousRank x)..(previousRank $ previousRank $ previousRank $ previousRank x)]    = True
+    | otherwise = False
+
+nextRank :: Rank -> Rank
+nextRank Ace = Two
+nextRank listRank = succ listRank
+
+previousRank :: Rank -> Rank
+previousRank Two = Ace
+previousRank listRank = pred listRank
+
+
+
+MyAI notes:
+
+Basic:
+Hand of cards
+- Check for best hand type of the cards we have
+- If best hand type <  two pair -> discard
+- If not, play best hand 
+
+myAI moves cards
+    | bestHandType (bestHand) <= TwoPair  = Move Discard (cards \\ (whichCardsScore (cards)))
+    | otherwise = Move Play (whichCardsScore (bestHand))
+    where
+        bestHand = highestScoringHand cards
+
+
+Flush Check:
+Hand of cards
+- Check if flush is possible
+  - if so, deal flush hand
+  - if not, find out most popular suit, discard all cards that do not make up the flush suit
+
+Function: check suits of cards , TAKES IN: list of ranks
+- Check how many cards there are for a particular suit
+  - sort cards, then group, pick the group of maximum length
+- return most popular suit
+
+Function: discard 5 cards
+
+
+
+
+FullHouse check:
+Hand of cards
+- Check if full house possible
+  - if so deal
+  - if not, group ranks, see how many cards there are of the same ranks, keep groups of length <=3
+      - if two or more groups >=3 then guaranteed full house
+      - If two groups >= 2 where at least one group is >= 3 then full house
+      - otherwise keep two max groups and discard rest
+
+fhAI :: [Move] -> [Card] -> Move
+fhAI moves cards
+    -- If fhCheck then play 3 of the first best group of >=3 and 2 of the first best group of >=2
+    | fhCheck                        = Move Play ((take 3 (firstGroupGT2)) ++ (take 2 (extractValue (find (\g -> length g >=2) (ranksGrouped \\ [firstGroupGT2])))))
+    | discardCheck moves             = sensibleAI moves cards
+    | otherwise                      = Move Discard (take 5 ( sortBy (comparing rank) (cards \\ ranksGroupedBestOrderCombined)))
+    where
+        ranksGrouped = filter (\card -> length card >= 2) (groupBy ((==) `on` rank) (sortBy (comparing rank) cards))
+        lengthsOfGroupedRanks = map length ranksGrouped
+        ranksGroupedBestOrderCombined = reverse (foldr (++) [] ranksGrouped)
+        fhCheck = ((length ranksGrouped) >=2) && (any (>=3) lengthsOfGroupedRanks)
+        firstGroupGT2 = extractValue (find (\g -> length g >=3) ranksGrouped)
+
+
+Note: not deleting first group of 3 from next somehow gives better score?
+
+    | any (==4) lengthsOfGroupedRanks       = Move Play (head (filter (\g -> length g == 4) (ranksGrouped)))#
+
+extractValue :: Maybe [Card] -> [Card]
+extractValue Nothing = []
+extractValue (Just a) = a
+
+
+
+MAIN FUNCTION IDEA:
+
+-> Check for a full house -> play
+  -> Check for a fush -> play
+    -> Check if full house threshold reached (two pair) -> discard keeping relevant cards
+      -> Check if flush threshold reached (triple) -> discard lowest level cards keeping relevant cards
+        -> Discard lowest ranked cards || choose best hand type with other dummy cards
+
+
+originals:
+
+fhAI :: [Move] -> [Card] -> Move
+fhAI moves cards
+    -- If fhCheck then play 3 of the first best group of >=3 and 2 of the first best group of >=2
+    | fhCheck                        = Move Play (extractFH ranksGrouped)
+    | discardCheck moves             = sensibleAI moves cards
+    | otherwise                      = Move Discard (take 5 (sortBy (comparing rank) (cards \\ ranksGroupedBestOrderCombined)))
+    where
+        ranksGrouped = filter (\card -> length card >= 2) (groupBy ((==) `on` rank) (sortBy (comparing rank) cards))
+        lengthsOfGroupedRanks = map length ranksGrouped
+        ranksGroupedBestOrderCombined = reverse (foldr (++) [] ranksGrouped)
+        fhCheck = ((length ranksGrouped) >=2) && (any (>=3) lengthsOfGroupedRanks)
+
+flushAI :: [Move] -> [Card] -> Move
+flushAI moves cards
+    | length popularSuit == 5        = Move Play cardsToKeep
+    | discardCheck moves             = sensibleAI moves cards
+    | otherwise                 = Move Discard (take 5 cardsToDiscard)
+    where
+        popularSuit = popularSuitCheck (map suit cards)
+        cardsToKeep = filter (\card -> suit card == (head popularSuit)) cards
+        cardsToDiscard = cards \\ cardsToKeep
+      
+
+
+Using [Moves]
+-> If no flush
+-> Identify most popular suit(s)
+  -> If more than one, for each one, check how many cards of the suit is left to be drawn, suit with highest number of cards left is kept
+  -> If only one, check how many cards left to be drawn, 
+      -> if <3 then abandon that flush and get rid of cards of that suit 
+      -> Else, try for the flush
+      -> AMBITIOUS: Else, find potential full house candidates, compare probabilities of a full house or completing the flush
+
+WORKING ORIGINAL CODE: ------------------------------------------------------------------------------------------------------------------
+
+myAI :: [Move] -> [Card] -> Move
+myAI = mainAI
+
+mainAI :: [Move] -> [Card] -> Move
+mainAI moves cards
+    | length popularSuit == 5                               = Move Play cardsToKeep
+    | length popularSuit > 5                                = Move Play (take 5 (reverse (sort cardsToKeep)))
+    | fhCheck                                               = Move Play (extractFH ranksGrouped)
+    | discardCheck moves                                    = sensibleHand
+    -- Four of a kind check??
+    |  (any (==4) lengthsOfGroupedRanks)                    = Move Play (head (filter (\card -> length card ==4) (ranksGrouped)))
+    | otherwise                                             = flushAI moves cards popularSuit cardsToKeep
+    where
+        ranksGrouped = filter (\card -> length card >= 2) (groupBy ((==) `on` rank) (sortBy (comparing rank) cards))
+        lengthsOfGroupedRanks = map length ranksGrouped
+        fhCheck = ((length ranksGrouped) >=2) && (any (>=3) lengthsOfGroupedRanks)
+
+
+        popularSuit = popularSuitCheck (map suit cards)
+        cardsToKeep = filter (\card -> suit card == (head popularSuit)) cards
+
+        sensibleHand = sensibleAI moves cards
+
+
+fhAI :: [Move] -> [Card] -> [[Card]] -> Move
+fhAI moves cards ranksGrouped
+    -- If fhCheck then play 3 of the first best group of >=3 and 2 of the first best group of >=2
+    = Move Discard (take 5 (sortBy (comparing rank) (cards \\ ranksGroupedBestOrderCombined)))
+    where
+        ranksGroupedBestOrderCombined = reverse (foldr (++) [] ranksGrouped)
+
+
+extractFH :: [[Card]] -> [Card]
+extractFH ranksGrouped = take 3 (firstGroup) ++ take 2 (head (filter (\g -> length g >=2) (delete firstGroup ranksGrouped)))
+    where
+        firstGroup = head (filter (\g -> length g >=3) ranksGrouped)
+
+
+
+flushAI :: [Move] -> [Card] -> [Suit] -> [Card] -> Move
+flushAI moves cards popularSuit cardsToKeep = Move Discard (take 5 (reverse (sort cardsToDiscard)))
+    where
+        cardsToDiscard = cards \\ cardsToKeep
+
+discardCheck :: [Move] -> Bool
+discardCheck moves = (length (filter (\move -> returnPOD move == Discard) moves)) == 3
+
+returnPOD :: Move -> PlayOrDiscard
+returnPOD (Move x _) = x
+
+popularSuitCheck :: [Suit] -> [Suit]
+popularSuitCheck suits = maximumBy (comparing length) (group (reverse(sort suits))) -- If considering how many cards left to pull of that suit, need to change
